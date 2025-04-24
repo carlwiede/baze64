@@ -1,32 +1,21 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
-
 const std = @import("std");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    const base64 = Base64.init();
-    try stdout.print("Character at index 29: {c}\n", .{base64._char_at(29)});
 
     var memory_buffer: [1000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&memory_buffer);
     const allocator = fba.allocator();
 
-    const hello_world = "Hello, world!";
-    const encoded_hello_world = try base64.encode(allocator, hello_world);
-    try stdout.print("'Hello, world!' encoded to Base64 is: {s}\n", .{encoded_hello_world});
+    const text = "Testing some more stuff";
+    const etext = "VGVzdGluZyBzb21lIG1vcmUgc3R1ZmY=";
+    const base64 = Base64.init();
+    const encoded_text = try base64.encode(allocator, text);
+    const decoded_text = try base64.decode(allocator, etext);
+    try stdout.print("Encoded text: {s}\n", .{encoded_text});
+    try stdout.print("Decoded text: {s}\n", .{decoded_text});
 
     try bw.flush(); // Don't forget to flush!
 }
@@ -86,8 +75,46 @@ const Base64 = struct {
         return out;
     }
 
-    pub fn _char_at(self: Base64, index: usize) u8 {
+    pub fn decode(self: Base64, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+        if (input.len == 0) {
+            return "";
+        }
+
+        const n_output = try _calc_decode_length(input);
+        var output = try allocator.alloc(u8, n_output);
+        var count: u8 = 0;
+        var iout: u64 = 0;
+        var buf = [4]u8{ 0, 0, 0, 0 };
+
+        for (0..input.len) |i| {
+            buf[count] = self._char_index(input[i]);
+            count += 1;
+
+            if (count == 4) {
+                output[iout] = (buf[0] << 2) + (buf[1] >> 4);
+                if (buf[2] != 64) {
+                    output[iout + 1] = (buf[1] << 4) + (buf[2] >> 2);
+                }
+                if (buf[3] != 64) {
+                    output[iout + 2] = (buf[2] << 6) + buf[3];
+                }
+                iout += 3;
+                count = 0;
+            }
+        }
+
+        return output;
+    }
+
+    fn _char_at(self: Base64, index: usize) u8 {
         return self._table[index];
+    }
+
+    fn _char_index(self: Base64, char: u8) u8 {
+        for (0..63) |i| {
+            if (self._char_at(i) == char) return @intCast(i);
+        }
+        return 64;
     }
 
     fn _calc_encode_length(input: []const u8) !usize {
